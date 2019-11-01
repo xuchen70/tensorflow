@@ -598,7 +598,16 @@ class PyFuncTest(test.TestCase):
       tape.watch(x)
       y = script_ops.eager_py_func(f, inp=[x], Tout=dtypes.float32)
     dy_dx = tape.gradient(y, x)
-    self.assertEqual(self.evaluate(dy_dx), 6.0)
+    self.assertAllClose(self.evaluate(dy_dx), 6.0)
+
+    # Test complex values
+    x = constant_op.constant(3.0 + 3.0j)
+    with backprop.GradientTape() as tape:
+      tape.watch(x)
+      y = script_ops.eager_py_func(f, inp=[x], Tout=dtypes.complex128)
+    dy_dx = tape.gradient(y, x)
+    # Gradient of complex will be the conj
+    self.assertAllClose(self.evaluate(dy_dx), 6.0 - 6.0j)
 
   @test_util.run_v1_only("b/120545219")
   def testEagerGradientGraph(self):
@@ -696,6 +705,23 @@ class PyFuncTest(test.TestCase):
     with self.session(use_gpu=True) as sess:
       output = sess.run(z, feed_dict={x: 3.0})
       self.assertEqual(output, 18.0)
+
+  @test_util.run_in_graph_and_eager_modes
+  def testEagerPyFuncOnGPUWithStrings(self):
+
+    def fn(a):
+      return str(a.dtype)
+
+    x = constant_op.constant("x", dtype=dtypes.string)
+    output = script_ops.eager_py_func(fn, inp=[x], Tout=dtypes.string)
+    self.assertEqual(self.evaluate(output), "<dtype: 'string'>".encode("utf8"))
+
+  @test_util.run_in_graph_and_eager_modes
+  def testEagerPyFuncNotACallable(self):
+    x = constant_op.constant("x", dtype=dtypes.string)
+
+    with self.assertRaisesRegexp(ValueError, "callable"):
+      _ = script_ops.eager_py_func(x, inp=[x], Tout=dtypes.string)
 
 
 if __name__ == "__main__":

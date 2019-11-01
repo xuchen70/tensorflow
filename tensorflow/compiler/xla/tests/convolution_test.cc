@@ -1886,7 +1886,7 @@ XLA_TEST_F(ConvolutionTest, Convolve_bf16_1x1x1x2_1x1x1x2_Valid) {
 // (We run this test on all platforms, because, what the heck.)
 XLA_TEST_F(ConvolutionTest, NoCudnnAlgorithmPicker) {
   execution_options_.mutable_debug_options()->add_xla_disable_hlo_passes(
-      "cudnn-conv-algorithm-picker");
+      "gpu-conv-algorithm-picker");
 
   XlaBuilder builder(TestName());
   Shape input_shape = ShapeUtil::MakeShape(F32, {1, 1, 1, 2});
@@ -1995,9 +1995,7 @@ ENTRY Test {
   EXPECT_TRUE(RunAndCompare(kHlo, ErrorSpec{0.001}));
 }
 
-// TODO(b/139371794): Enable this test for the GPU backend once the bug is
-// fixed.
-XLA_TEST_F(ConvolutionHloTest, DISABLED_ON_GPU(ConvolveBackwardInput)) {
+XLA_TEST_F(ConvolutionHloTest, ConvolveBackwardInput) {
   constexpr char kHlo[] = R"(
 HloModule TestModule
 

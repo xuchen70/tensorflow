@@ -24,14 +24,29 @@ namespace data {
 
 class DatasetToGraphOp : public OpKernel {
  public:
-  static constexpr const char* const kStatefulWhitelist = "stateful_whitelist";
+  static constexpr const char* const kAllowStateful = "allow_stateful";
+  static constexpr const char* const kStripDeviceAssignment =
+      "strip_device_assignment";
+  static constexpr const char* const kExternalStatePolicy =
+      "external_state_policy";
+  static constexpr const char* const kDatasetToGraph = "DatasetToGraph";
 
   explicit DatasetToGraphOp(OpKernelConstruction* ctx);
 
   void Compute(OpKernelContext* ctx) override;
 
  private:
-  std::vector<string> whitelisted_stateful_ops_;
+  // Enum describing what to do during serialization when external state is
+  // encountered.
+  enum class ExternalStatePolicy {
+    kWarn,
+    kIgnore,
+    kFail,
+  };
+
+  const int op_version_;
+  ExternalStatePolicy external_state_policy_ = ExternalStatePolicy::kWarn;
+  bool strip_device_assignment_ = false;
 };
 
 class DatasetCardinalityOp : public OpKernel {

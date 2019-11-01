@@ -86,9 +86,9 @@ using DimensionVector = absl::InlinedVector<int64, kInlineRank>;
   XLA_SCOPED_LOGGING_TIMER_HELPER2(label, level, counter)
 
 // Helper for macros above.  Don't use directly.
-#define XLA_SCOPED_LOGGING_TIMER_HELPER2(label, level, counter)         \
-  static ::xla::TimerStats XLA_TimerStats##counter;                     \
-  ::xla::ScopedLoggingTimer XLA_ScopedLoggingTimerInstance##counter(    \
+#define XLA_SCOPED_LOGGING_TIMER_HELPER2(label, level, counter)      \
+  static ::xla::TimerStats XLA_TimerStats##counter;                  \
+  ::xla::ScopedLoggingTimer XLA_ScopedLoggingTimerInstance##counter( \
       label, /*enabled=*/VLOG_IS_ON(level), &XLA_TimerStats##counter);
 
 struct TimerStats {
@@ -484,8 +484,8 @@ int64 Product(absl::Span<const int64> xs);
 //
 // If the given shapes have non-zero size, returns the bounds of the shortest
 // possible such subsequences; else, returns `{(0, 0), (a.size, b.size)}`.
-std::vector<std::pair<int64, int64>> CommonFactors(absl::Span<const int64> a,
-                                                   absl::Span<const int64> b);
+absl::InlinedVector<std::pair<int64, int64>, 8> CommonFactors(
+    absl::Span<const int64> a, absl::Span<const int64> b);
 
 // Removes illegal characters from filenames.
 string SanitizeFileName(string file_name);
@@ -507,7 +507,7 @@ void EraseAt(C* c, int64 index) {
 }
 
 template <typename T>
-std::vector<T> ArraySliceToVector(absl::Span<const T> slice) {
+std::vector<T> SpanToVector(absl::Span<const T> slice) {
   return std::vector<T>(slice.begin(), slice.end());
 }
 

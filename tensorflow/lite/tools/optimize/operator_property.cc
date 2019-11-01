@@ -45,6 +45,13 @@ OperatorProperty GetOperatorProperty(const BuiltinOperator& op) {
       property.restrict_same_input_output_scale = true;
       property.version = 2;
       break;
+    case BuiltinOperator_SPLIT:
+      property.arbitrary_outputs = true;
+      // We skip input 0 since it is the split dim which is not real valued.
+      property.inputs = {{1, {}}};
+      property.restrict_same_input_output_scale = true;
+      property.version = 2;
+      break;
     case BuiltinOperator_CONCATENATION:
       property.arbitrary_inputs = true;
       property.outputs = {{0, {}}};
@@ -85,6 +92,13 @@ OperatorProperty GetOperatorProperty(const BuiltinOperator& op) {
       property.inputs = {{0, {}}, {1, {}}};
       // Comparisons have no quantizable outputs.
       property.version = 2;
+      break;
+    case BuiltinOperator_EXPAND_DIMS:
+      // We skip input 1 as it is not real valued (it's the index of axis) and
+      // hence does not need to be quantized.
+      property.inputs = {{0, {}}};
+      property.outputs = {{0, {}}};
+      property.version = 1;
       break;
     case BuiltinOperator_FULLY_CONNECTED: {
       TensorProperty tensor_property;
@@ -177,6 +191,17 @@ OperatorProperty GetOperatorProperty(const BuiltinOperator& op) {
       property.outputs = {{0, {}}};
       property.version = 2;
       break;
+    case BuiltinOperator_RELU:
+    case BuiltinOperator_RELU6:
+      property.inputs = {{0, {}}};
+      property.outputs = {{0, {}}};
+      property.version = 2;
+      break;
+    case BuiltinOperator_RELU_N1_TO_1:
+      property.inputs = {{0, {}}};
+      property.outputs = {{0, {}}};
+      property.version = 1;
+      break;
     case BuiltinOperator_RESHAPE:
       property.inputs = {{0, {}}};
       property.outputs = {{0, {}}};
@@ -218,6 +243,12 @@ OperatorProperty GetOperatorProperty(const BuiltinOperator& op) {
       property.version = 2;
       break;
     }
+    case BuiltinOperator_STRIDED_SLICE:
+      property.inputs = {{0, {}}};
+      property.outputs = {{0, {}}};
+      property.restrict_same_input_output_scale = true;
+      property.version = 2;
+      break;
     case BuiltinOperator_SUB:
       property.inputs = {{0, {}}, {1, {}}};
       property.outputs = {{0, {}}};
@@ -239,6 +270,12 @@ OperatorProperty GetOperatorProperty(const BuiltinOperator& op) {
       break;
     }
     case BuiltinOperator_TRANSPOSE:
+      property.inputs = {{0, {}}};
+      property.outputs = {{0, {}}};
+      property.restrict_same_input_output_scale = true;
+      property.version = 2;
+      break;
+    case BuiltinOperator_RESIZE_NEAREST_NEIGHBOR:
       property.inputs = {{0, {}}};
       property.outputs = {{0, {}}};
       property.restrict_same_input_output_scale = true;

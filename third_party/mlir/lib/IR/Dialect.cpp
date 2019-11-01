@@ -49,7 +49,7 @@ void mlir::registerDialectAllocator(const DialectAllocatorFunction &function) {
 }
 
 /// Registers a function to set specific hooks for a specific dialect, typically
-/// used through the DialectHooksRegistreation template.
+/// used through the DialectHooksRegistration template.
 void mlir::registerDialectHooksSetter(const DialectHooksSetter &function) {
   assert(
       function &&
@@ -86,6 +86,15 @@ Dialect::~Dialect() {}
 /// invoked from any operation containing a region.
 LogicalResult Dialect::verifyRegionArgAttribute(Operation *, unsigned, unsigned,
                                                 NamedAttribute) {
+  return success();
+}
+
+/// Verify an attribute from this dialect on the result at 'resultIndex' for
+/// the region at 'regionIndex' on the given operation. Returns failure if
+/// the verification failed, success otherwise. This hook may optionally be
+/// invoked from any operation containing a region.
+LogicalResult Dialect::verifyRegionResultAttribute(Operation *, unsigned,
+                                                   unsigned, NamedAttribute) {
   return success();
 }
 
@@ -135,9 +144,12 @@ DialectInterface::~DialectInterface() {}
 
 DialectInterfaceCollectionBase::DialectInterfaceCollectionBase(
     MLIRContext *ctx, ClassID *interfaceKind) {
-  for (auto *dialect : ctx->getRegisteredDialects())
-    if (auto *interface = dialect->getRegisteredInterface(interfaceKind))
-      interfaces.try_emplace(dialect, interface);
+  for (auto *dialect : ctx->getRegisteredDialects()) {
+    if (auto *interface = dialect->getRegisteredInterface(interfaceKind)) {
+      interfaces.insert(interface);
+      orderedInterfaces.push_back(interface);
+    }
+  }
 }
 
 DialectInterfaceCollectionBase::~DialectInterfaceCollectionBase() {}
@@ -146,5 +158,5 @@ DialectInterfaceCollectionBase::~DialectInterfaceCollectionBase() {}
 /// is not registered.
 const DialectInterface *
 DialectInterfaceCollectionBase::getInterfaceFor(Operation *op) const {
-  return interfaces.lookup(op->getDialect());
+  return getInterfaceFor(op->getDialect());
 }

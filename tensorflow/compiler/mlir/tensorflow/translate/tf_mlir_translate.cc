@@ -32,6 +32,8 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/utils/import_utils.h"
 #include "tensorflow/compiler/mlir/tensorflow/utils/mangling_util.h"
 #include "tensorflow/core/framework/graph.pb.h"
+#include "tensorflow/core/framework/versions.pb.h"
+#include "tensorflow/core/grappler/utils/transitive_fanin.h"
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/protobuf/graph_debug_info.pb.h"
 
@@ -41,45 +43,63 @@ using stream_executor::port::Status;
 using stream_executor::port::StatusOr;
 
 static StatusOr<mlir::OwningModuleRef> GraphdefToMlirImport(
-    absl::string_view input_filename, absl::string_view debug_info_file,
-    absl::string_view input_arrays, absl::string_view input_dtypes,
-    absl::string_view input_shapes, absl::string_view output_arrays,
-    absl::string_view inference_type, absl::string_view min_values,
-    absl::string_view max_values, bool prune_unused_nodes,
-    bool convert_legacy_fed_inputs, bool graph_as_function,
+    std::unique_ptr<llvm::MemoryBuffer> input,
+    absl::string_view debug_info_file, absl::string_view input_arrays,
+    absl::string_view input_dtypes, absl::string_view input_shapes,
+    absl::string_view output_arrays, bool prune_unused_nodes,
+    bool convert_legacy_fed_inputs, bool graph_as_function, bool upgrade_legacy,
     mlir::MLIRContext* context) {
   GraphDef graphdef;
-  TF_RETURN_IF_ERROR(tensorflow::LoadProtoFromFile(input_filename, &graphdef));
+  TF_RETURN_IF_ERROR(tensorflow::LoadProtoFromBuffer(
+      {input->getBufferStart(), input->getBufferSize()}, &graphdef));
 
   GraphDebugInfo debug_info;
   if (!debug_info_file.empty()) {
     TF_RETURN_IF_ERROR(LoadProtoFromFile(debug_info_file, &debug_info));
   }
 
-  NodeSpecs specs;
+  GraphImportConfig specs;
   specs.prune_unused_nodes = prune_unused_nodes;
   specs.convert_legacy_fed_inputs = convert_legacy_fed_inputs;
   specs.graph_as_function = graph_as_function;
-  TF_RETURN_IF_ERROR(ParseInputArrayInfo(
-      input_arrays, input_dtypes, input_shapes, inference_type, min_values,
-      max_values, &specs.inputs));
+  specs.upgrade_legacy = upgrade_legacy;
+  TF_RETURN_IF_ERROR(ParseInputArrayInfo(input_arrays, input_dtypes,
+                                         input_shapes, &specs.inputs));
   TF_RETURN_IF_ERROR(ParseOutputArrayInfo(output_arrays, &specs.output_arrays,
                                           &specs.output_arrays_order));
-  return ConvertGraphdefToMlir(graphdef, debug_info, specs, context);
+  // TODO(b/142828368): Pruning should not be needed when TF import
+  // supports importing graphs w/ unregistered ops natively.
+  GraphDef pruned_graph_def;
+  if (specs.prune_unused_nodes) {
+    std::vector<string> terminal_nodes(specs.output_arrays.begin(),
+                                       specs.output_arrays.end());
+    for (const auto entry : specs.inputs) {
+      terminal_nodes.push_back(entry.first);
+    }
+    TF_RETURN_IF_ERROR(tensorflow::grappler::SetTransitiveFaninGraph(
+        graphdef, &pruned_graph_def, terminal_nodes));
+    // TODO(ashwinm): Add a separate utility in grappler utils that abstracts
+    // both SetTransitiveFaninGraph and restoring the missing contents from the
+    // original graph like function def library and version.
+    pruned_graph_def.mutable_library()->Swap(graphdef.mutable_library());
+    pruned_graph_def.mutable_versions()->Swap(graphdef.mutable_versions());
+  }
+  return ConvertGraphdefToMlir(
+      specs.prune_unused_nodes ? pruned_graph_def : graphdef, debug_info, specs,
+      context);
 }
 
 mlir::OwningModuleRef GraphdefToMlirTranslateFunction(
-    absl::string_view input_filename, absl::string_view debug_info_file,
-    absl::string_view input_arrays, absl::string_view input_dtypes,
-    absl::string_view input_shapes, absl::string_view output_arrays,
-    absl::string_view inference_type, absl::string_view min_values,
-    absl::string_view max_values, bool prune_unused_nodes,
-    bool convert_legacy_fed_inputs, bool graph_as_function,
+    std::unique_ptr<llvm::MemoryBuffer> input,
+    absl::string_view debug_info_file, absl::string_view input_arrays,
+    absl::string_view input_dtypes, absl::string_view input_shapes,
+    absl::string_view output_arrays, bool prune_unused_nodes,
+    bool convert_legacy_fed_inputs, bool graph_as_function, bool upgrade_legacy,
     mlir::MLIRContext* context) {
   auto module_or = GraphdefToMlirImport(
-      input_filename, debug_info_file, input_arrays, input_dtypes, input_shapes,
-      output_arrays, inference_type, min_values, max_values, prune_unused_nodes,
-      convert_legacy_fed_inputs, graph_as_function, context);
+      std::move(input), debug_info_file, input_arrays, input_dtypes,
+      input_shapes, output_arrays, prune_unused_nodes,
+      convert_legacy_fed_inputs, graph_as_function, upgrade_legacy, context);
   if (!module_or.status().ok()) {
     LOG(ERROR) << "Graph import failed: " << module_or.status();
     return nullptr;
@@ -88,18 +108,42 @@ mlir::OwningModuleRef GraphdefToMlirTranslateFunction(
   return module_or.ConsumeValueOrDie();
 }
 
+mlir::OwningModuleRef SavedModelToMlirImport(
+    absl::string_view saved_model_dir,
+    const std::unordered_set<std::string>& tags,
+    absl::Span<std::string> exported_names, mlir::MLIRContext* context) {
+  SessionOptions session_options;
+  RunOptions run_options;
+  tensorflow::SavedModelBundle bundle;
+  auto load_status = LoadSavedModel(
+      session_options, run_options,
+      std::string(saved_model_dir.data(), saved_model_dir.length()), tags,
+      &bundle);
+  if (!load_status.ok()) {
+    LOG(ERROR) << "Failed to load saved model '" << saved_model_dir
+               << "': " << load_status;
+    return nullptr;
+  }
+
+  auto module_or = ConvertSavedModelToMlir(bundle, context, exported_names);
+  if (!module_or.status().ok()) {
+    LOG(ERROR) << "SavedModel import failed: " << module_or.status();
+    return nullptr;
+  }
+  return module_or.ConsumeValueOrDie();
+}
+
 mlir::OwningModuleRef GraphdefToSplattedMlirTranslateFunction(
-    absl::string_view input_filename, absl::string_view debug_info_file,
-    absl::string_view input_arrays, absl::string_view input_dtypes,
-    absl::string_view input_shapes, absl::string_view output_arrays,
-    absl::string_view inference_type, absl::string_view min_values,
-    absl::string_view max_values, bool prune_unused_nodes,
-    bool convert_legacy_fed_inputs, bool graph_as_function,
+    std::unique_ptr<llvm::MemoryBuffer> input,
+    absl::string_view debug_info_file, absl::string_view input_arrays,
+    absl::string_view input_dtypes, absl::string_view input_shapes,
+    absl::string_view output_arrays, bool prune_unused_nodes,
+    bool convert_legacy_fed_inputs, bool graph_as_function, bool upgrade_legacy,
     mlir::MLIRContext* context) {
   auto module_or = GraphdefToMlirImport(
-      input_filename, debug_info_file, input_arrays, input_dtypes, input_shapes,
-      output_arrays, inference_type, min_values, max_values, prune_unused_nodes,
-      convert_legacy_fed_inputs, graph_as_function, context);
+      std::move(input), debug_info_file, input_arrays, input_dtypes,
+      input_shapes, output_arrays, prune_unused_nodes,
+      convert_legacy_fed_inputs, graph_as_function, upgrade_legacy, context);
   if (!module_or.status().ok()) {
     LOG(ERROR) << "Graph import failed: " << module_or.status();
     return nullptr;

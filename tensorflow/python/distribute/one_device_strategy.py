@@ -247,7 +247,7 @@ class OneDeviceExtended(distribute_lib.StrategyExtendedV1):
 
   def __init__(self, container_strategy, device):
     super(OneDeviceExtended, self).__init__(container_strategy)
-    self._device = device_util.canonicalize(device)
+    self._device = device_util.resolve(device)
     suffix_loc = self._device.rfind("/")
     self._input_device = self._device[:suffix_loc] + "/device:CPU:0"
     worker_device_pairs = [(self._input_device, [self._device])]
@@ -382,6 +382,10 @@ class OneDeviceExtended(distribute_lib.StrategyExtendedV1):
 
   def value_container(self, value):
     return value
+
+  def _in_multi_worker_mode(self):
+    """Whether this strategy indicates working in multi-worker settings."""
+    return False
 
   @property
   def _num_replicas_in_sync(self):

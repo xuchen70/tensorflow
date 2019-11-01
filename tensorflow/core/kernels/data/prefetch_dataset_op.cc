@@ -20,12 +20,13 @@ limitations under the License.
 #include "tensorflow/core/framework/partial_tensor_shape.h"
 #include "tensorflow/core/framework/stats_aggregator.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/kernels/data/dataset_utils.h"
 #include "tensorflow/core/kernels/data/name_utils.h"
 #include "tensorflow/core/kernels/data/stats_utils.h"
-#include "tensorflow/core/lib/core/error_codes.pb.h"
 #include "tensorflow/core/lib/gtl/cleanup.h"
 #include "tensorflow/core/lib/strings/str_util.h"
 #include "tensorflow/core/lib/strings/stringprintf.h"
+#include "tensorflow/core/protobuf/error_codes.pb.h"
 
 namespace tensorflow {
 namespace data {
@@ -120,18 +121,13 @@ class PrefetchDatasetOp::Dataset : public DatasetBase {
     }
 
     ~Iterator() override {
-      // Signal the prefetch thread to terminate it. We will then
-      // join that thread when we delete `this->prefetch_thread_`.
-      //
-      // TODO(mrry): Replace this cancellation logic with a
-      // CancellationManager. The syntax would be more heavyweight,
-      // but it would be possible to thread a cancellation manager
-      // through the IteratorContext to upstream,
-      // potentially-blocking iterators, when we add these.
       {
         mutex_lock l(*mu_);
         cancelled_ = true;
         cond_var_->notify_all();
+      }
+      if (deregister_fn_) {
+        deregister_fn_();
       }
     }
 
@@ -156,6 +152,14 @@ class PrefetchDatasetOp::Dataset : public DatasetBase {
       if (buffer_size_->value == model::kAutotune) {
         buffer_size_->value = 0;
       }
+      TF_RETURN_IF_ERROR(RegisterCancellationCallback(
+          ctx->cancellation_manager(),
+          [this]() {
+            mutex_lock l(*mu_);
+            cancelled_ = true;
+            cond_var_->notify_all();
+          },
+          &deregister_fn_));
       return dataset()->input_->MakeIterator(ctx, prefix(), &input_impl_);
     }
 
@@ -388,6 +392,8 @@ class PrefetchDatasetOp::Dataset : public DatasetBase {
           }
 
           if (cancelled_) {
+            prefetch_thread_finished_ = true;
+            cond_var_->notify_all();
             return;
           }
         }
@@ -448,7 +454,7 @@ class PrefetchDatasetOp::Dataset : public DatasetBase {
       error::Code code = static_cast<error::Code>(code_int);
 
       if (code != error::Code::OK) {
-        string error_message;
+        tstring error_message;
         TF_RETURN_IF_ERROR(
             reader->ReadScalar(ErrorMessageKey(index), &error_message));
         *status = Status(code, error_message);
@@ -487,6 +493,7 @@ class PrefetchDatasetOp::Dataset : public DatasetBase {
 
     // If legacy_autotune_ is false, identifies the maximum size of the buffer.
     const std::shared_ptr<model::SharedState> buffer_size_;
+    std::function<void()> deregister_fn_;
   };
   const DatasetBase* const input_;
   const int64 buffer_size_;

@@ -63,8 +63,8 @@ typedef struct {
 typedef enum {
   kTfLiteActNone = 0,
   kTfLiteActRelu,
-  kTfLiteActRelu1,
-  kTfLiteActRelu6,
+  kTfLiteActRelu1,  // min(max(-1, x), 1)
+  kTfLiteActRelu6,  // min(max(0, x), 6)
   kTfLiteActTanh,
   kTfLiteActSignBit,
   kTfLiteActSigmoid,
@@ -269,6 +269,10 @@ typedef struct {
 typedef struct {
   int block_size;
 } TfLiteSpaceToDepthParams;
+
+typedef struct {
+  int block_size;
+} TfLiteDepthToSpaceParams;
 
 typedef struct {
   TfLiteType in_data_type;

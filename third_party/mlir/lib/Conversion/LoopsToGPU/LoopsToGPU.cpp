@@ -22,12 +22,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/LoopsToGPU/LoopsToGPU.h"
-#include "mlir/AffineOps/AffineOps.h"
+#include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/StandardOps/Ops.h"
 #include "mlir/Transforms/LowerAffine.h"
 #include "mlir/Transforms/RegionUtils.h"
 
@@ -261,7 +261,7 @@ void LoopToGpuConverter::createLaunch(OpTy rootForOp, OpTy innermostForOp,
   Location terminatorLoc = terminator.getLoc();
   terminator.erase();
   builder.setInsertionPointToEnd(innermostForOp.getBody());
-  builder.create<gpu::Return>(terminatorLoc);
+  builder.create<gpu::ReturnOp>(terminatorLoc);
   launchOp.getBody().front().getOperations().splice(
       launchOp.getBody().front().begin(),
       innermostForOp.getBody()->getOperations());

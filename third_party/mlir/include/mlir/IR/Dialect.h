@@ -133,22 +133,6 @@ public:
     llvm_unreachable("dialect has no registered type printing hook");
   }
 
-  /// Registered hooks for getting identifier aliases for symbols. The
-  /// identifier is used in place of the symbol when printing textual IR.
-  ///
-  /// Hook for defining Attribute kind aliases. This will generate an alias for
-  /// all attributes of the given kind in the form : <alias>[0-9]+. These
-  /// aliases must not contain `.`.
-  virtual void getAttributeKindAliases(
-      SmallVectorImpl<std::pair<unsigned, StringRef>> &aliases) {}
-  /// Hook for defining Attribute aliases. These aliases must not contain `.` or
-  /// end with a numeric digit([0-9]+).
-  virtual void getAttributeAliases(
-      SmallVectorImpl<std::pair<Attribute, StringRef>> &aliases) {}
-  /// Hook for defining Type aliases.
-  virtual void
-  getTypeAliases(SmallVectorImpl<std::pair<Type, StringRef>> &aliases) {}
-
   //===--------------------------------------------------------------------===//
   // Verification Hooks
   //===--------------------------------------------------------------------===//
@@ -161,6 +145,15 @@ public:
                                                  unsigned regionIndex,
                                                  unsigned argIndex,
                                                  NamedAttribute);
+
+  /// Verify an attribute from this dialect on the result at 'resultIndex' for
+  /// the region at 'regionIndex' on the given operation. Returns failure if
+  /// the verification failed, success otherwise. This hook may optionally be
+  /// invoked from any operation containing a region.
+  virtual LogicalResult verifyRegionResultAttribute(Operation *,
+                                                    unsigned regionIndex,
+                                                    unsigned resultIndex,
+                                                    NamedAttribute);
 
   /// Verify an attribute from this dialect on the given operation. Returns
   /// failure if the verification failed, success otherwise.
@@ -262,7 +255,7 @@ protected:
     addInterfaces<T2, Tys...>();
   }
   template <typename T> void addInterfaces() {
-    addInterface(llvm::make_unique<T>(this));
+    addInterface(std::make_unique<T>(this));
   }
 
 private:
